@@ -1,9 +1,9 @@
 from pathlib import Path
 
-import lightgbm as lgb
+import catboost as cb
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold
+from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 
 data_path = Path("../data/")
@@ -30,54 +30,62 @@ def lgb_metric(y_true, y_pred):
 # read data
 train_df = pd.read_csv(data_path / "train.csv")
 test_df = pd.read_csv(data_path / "test.csv")
-test_ids = test_df["Id"]
+greeks_df = pd.read_csv(data_path / "greeks.csv")
 
-# preprocess data
-feature_columns = train_df.columns[1:-1]
+# some columns have trailing spaces
+train_df.columns = train_df.columns.str.strip()
+test_df.columns = test_df.columns.str.strip()
+feature_cols = train_df.columns.tolist()[1:-1]
 
-# Convert the categorical feature to numeric representation using label encoding
+# Encode categorical column
 label_encoder = LabelEncoder()
 train_df["EJ"] = label_encoder.fit_transform(train_df["EJ"])
 test_df["EJ"] = label_encoder.transform(test_df["EJ"])
 
-X_train, y_train = train_df[feature_columns], train_df["Class"]
-X_test = test_df[feature_columns]
+# training
+oof = np.zeros(len(train_df))
+skf = MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+test_probs = []
 
-n_splits = 5
-kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-test_probs = np.zeros((len(test_df), 2))
+for train_idx, val_idx in skf.split(train_df, greeks_df.iloc[:, 1:-1]):
 
-cur_split = 1
-for train_idx, val_idx in kf.split(X_train, y_train):
-    print(f"Fold: {cur_split}".center(100, "-"))
-    cur_split += 1
-
-    X_train_fold, y_train_fold = (X_train.iloc[train_idx], y_train.iloc[train_idx])
-    X_val_fold, y_val_fold = X_train.iloc[val_idx], y_train.iloc[val_idx]
-
-    params = {
-        "objective": "binary",
-        "n_estimators": 10000,
-        "n_jobs": -1,
-        "verbose": -1,
-        "seed": seed,
-    }
-    model = lgb.LGBMClassifier(**params)
-    model.fit(
-        X_train_fold,
-        y_train_fold,
-        eval_set=[(X_val_fold, y_val_fold)],
-        eval_metric=["binary_logloss", lgb_metric],
-        callbacks=[
-            lgb.log_evaluation(period=-1),
-            lgb.early_stopping(stopping_rounds=5, verbose=True),
-        ],
+    X_train, y_train = (
+        train_df.loc[train_idx, feature_cols],
+        train_df.loc[train_idx, "Class"],
     )
 
-    test_fold_probs = model.predict_proba(X_test)
-    test_probs += test_fold_probs / n_splits
+    X_val, y_val = (
+        train_df.loc[val_idx, feature_cols],
+        train_df.loc[val_idx, "Class"],
+    )
 
+    params = {
+        "iterations": 10000,
+        "learning_rate": 0.005,
+        "early_stopping_rounds": 1000,
+        "auto_class_weights": "Balanced",
+        "loss_function": "MultiClass",
+        "eval_metric": "MultiClass:use_weights=False",
+        "random_seed": 42,
+        "use_best_model": True,
+        "l2_leaf_reg": 1,
+        "max_ctr_complexity": 15,
+        "max_depth": 10,
+        "grow_policy": "Lossguide",
+        "max_leaves": 64,
+        "min_data_in_leaf": 40,
+    }
+    model = cb.CatBoostClassifier(**params)
+    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=1000)
+    preds = model.predict_proba(X_val)
+    oof[val_idx] = model.predict_proba(X_val)[:, 1]
+    test_probs.append(model.predict_proba(test_df.iloc[:, 1:]))
+
+print(f"OOF score: {balanced_log_loss(train_df['Class'], oof):.4f}")
+
+# generate a submission file
+test_probs = np.mean(test_probs, axis=0)
 sub_df = pd.DataFrame(
-    {"Id": test_ids, "Class_0": test_probs[:, 0], "Class_1": test_probs[:, 1]}
+    {"Id": test_df.Id, "Class_0": test_probs[:, 0], "Class_1": test_probs[:, 1]}
 )
 sub_df.to_csv("submission.csv", index=False)
