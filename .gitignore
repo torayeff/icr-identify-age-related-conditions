@@ -163,4 +163,7 @@ cython_debug/
 .DS_Store
 
 # catboost
-*/catboost_info/*
+**/catboost_info/**
+
+# learning playground
+**/my_playground/**
