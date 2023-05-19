@@ -2,5 +2,5 @@
 ICR - Identifying Age-Related Conditions
 
 ## Tasks
-1. Learn catboost
-2. Feature engineering
+1. EDA
+2. Feature Engineering
