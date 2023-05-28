@@ -1,4 +1,10 @@
 # Observations
+
+## 2023-05-28
+1. PCA did not help
+2. Manual imputing also did not help
+---
+
 Inconsistent public leaderboard and local OOF score:
 
 OOF: 0.3971 | PL: 0.22
