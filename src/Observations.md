@@ -1,5 +1,8 @@
 # Observations
 
+## 2023-05-31
+The CV is very sensitive to the random seed parameter.
+
 ## 2023-05-28
 1. PCA did not help
 2. Manual imputing also did not help

@@ -2,6 +2,4 @@
 ICR - Identifying Age-Related Conditions
 
 ## Tasks
-1. Check CV score alignment with PB
-2. EDA
-3. Feature Engineering
+1. My TabPFN is wrong?
